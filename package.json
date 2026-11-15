@@ -1,0 +1,10 @@
+{
+  "name": "certitrack-tests",
+  "private": true,
+  "type": "module",
+  "description": "Test runners for CertiTrack (no dependencies; Node 18+).",
+  "scripts": {
+    "test:extension": "node tests/extension/run-tests.mjs",
+    "test:e2e": "node tests/integration/e2e-smoke.mjs"
+  }
+}

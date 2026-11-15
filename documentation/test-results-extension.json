@@ -1,0 +1,165 @@
+{
+  "generated_at": "2026-11-15T03:29:22.301Z",
+  "node": "v22.23.4",
+  "target": "extension code + fake chrome + contract stub (NOT Laravel)",
+  "total": 31,
+  "passed": 31,
+  "failed": 0,
+  "results": [
+    {
+      "name": "extension pairing succeeds with one-time code",
+      "ok": true,
+      "info": ""
+    },
+    {
+      "name": "start refused without consent",
+      "ok": true,
+      "info": ""
+    },
+    {
+      "name": "platform detection: start refused when active tab is not on approved domain",
+      "ok": true,
+      "info": ""
+    },
+    {
+      "name": "session starts on approved tab and is stored server-side for the right student",
+      "ok": true,
+      "info": ""
+    },
+    {
+      "name": "status reports monitoring active, platform detected",
+      "ok": true,
+      "info": ""
+    },
+    {
+      "name": "second start in same browser refused",
+      "ok": true,
+      "info": ""
+    },
+    {
+      "name": "new platform works after config refresh with NO extension code change",
+      "ok": true,
+      "info": ""
+    },
+    {
+      "name": "S2 all 8 scripted activities captured in order (capture rate 8/8 = 100%)",
+      "ok": true,
+      "info": ""
+    },
+    {
+      "name": "S2 sequence numbers contiguous 1..8",
+      "ok": true,
+      "info": ""
+    },
+    {
+      "name": "S2 outside navigation records host only",
+      "ok": true,
+      "info": ""
+    },
+    {
+      "name": "S2 subframe navigation ignored",
+      "ok": true,
+      "info": ""
+    },
+    {
+      "name": "S2 severity assigned by server",
+      "ok": true,
+      "info": ""
+    },
+    {
+      "name": "S2 exam tab re-binding recorded",
+      "ok": true,
+      "info": ""
+    },
+    {
+      "name": "S3 no events reached server while offline",
+      "ok": true,
+      "info": ""
+    },
+    {
+      "name": "S3 events persisted in queue across worker restart; connection shown offline",
+      "ok": true,
+      "info": ""
+    },
+    {
+      "name": "S3 queued events synchronised after reconnection (none lost)",
+      "ok": true,
+      "info": ""
+    },
+    {
+      "name": "S3 no duplicates, contiguous seq",
+      "ok": true,
+      "info": ""
+    },
+    {
+      "name": "S3 retry after lost response creates no duplicate (tab_opened stored once more, not twice)",
+      "ok": true,
+      "info": ""
+    },
+    {
+      "name": "S3 connection_lost/restored recorded around the lost response",
+      "ok": true,
+      "info": ""
+    },
+    {
+      "name": "S3 queue empty after acknowledgement",
+      "ok": true,
+      "info": ""
+    },
+    {
+      "name": "S4 heartbeat accepted",
+      "ok": true,
+      "info": ""
+    },
+    {
+      "name": "S4 missing heartbeats mark session interrupted (server-side event recorded)",
+      "ok": true,
+      "info": ""
+    },
+    {
+      "name": "S4 resumed heartbeat returns session to active and logs monitoring_resumed",
+      "ok": true,
+      "info": ""
+    },
+    {
+      "name": "S4 extension stops monitoring when server reports session closed (409)",
+      "ok": true,
+      "info": ""
+    },
+    {
+      "name": "S5 end while offline leaves session pending (not silently dropped)",
+      "ok": true,
+      "info": ""
+    },
+    {
+      "name": "S5 no new events recorded after end requested",
+      "ok": true,
+      "info": ""
+    },
+    {
+      "name": "S5 pending end completes after reconnection; all events delivered; session completed",
+      "ok": true,
+      "info": ""
+    },
+    {
+      "name": "S5 integrity: client_last_seq equals received count",
+      "ok": true,
+      "info": ""
+    },
+    {
+      "name": "S5 local session cleared after completion",
+      "ok": true,
+      "info": ""
+    },
+    {
+      "name": "S6 browser restart recorded as exam_tab_closed(browser_restarted); session state survived",
+      "ok": true,
+      "info": ""
+    },
+    {
+      "name": "S7 e2e-smoke.mjs script runs green against the CONTRACT STUB (validates the script only, not Laravel)",
+      "ok": true,
+      "info": ""
+    }
+  ]
+}

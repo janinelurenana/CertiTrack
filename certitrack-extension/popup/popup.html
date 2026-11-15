@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CertiTrack</title><link rel="stylesheet" href="popup.css"></head>
+<body>
+<header><strong>CertiTrack</strong><span id="pill" class="pill off">Monitoring OFF</span></header>
+<div id="notice" class="notice" role="alert" hidden></div>
+<div id="msg" class="msg" role="status" aria-live="polite"></div>
+
+<section id="v-server" hidden>
+  <h2>1. Server</h2>
+  <label for="server-url">CertiTrack server address</label>
+  <input id="server-url" type="url" placeholder="http://127.0.0.1:8000">
+  <button id="btn-server">Save server</button>
+</section>
+
+<section id="v-signin" hidden>
+  <h2>2. Pair this extension</h2>
+  <p class="hint">In the CertiTrack dashboard (My monitoring) press <em>Generate pairing code</em>.</p>
+  <label for="pair-code">Pairing code</label>
+  <input id="pair-code" maxlength="16" autocomplete="off" placeholder="ABCD2345">
+  <button id="btn-pair">Pair</button>
+  <details><summary>Sign in with email and password instead</summary>
+    <label for="email">Email</label><input id="email" type="email" autocomplete="username">
+    <label for="password">Password</label><input id="password" type="password" autocomplete="current-password">
+    <button id="btn-login" class="secondary">Sign in</button></details>
+  <a href="#" id="change-server" class="link">Change server</a>
+</section>
+
+<section id="v-idle" hidden>
+  <h2>Start a monitoring session</h2>
+  <label for="platform">Platform</label>
+  <select id="platform"></select>
+  <p id="detect" class="hint"></p>
+  <div class="consent">
+    <strong>What is recorded while monitoring is ON</strong>
+    <ul><li>Switching tabs, opening new tabs, closing the exam tab</li><li>Leaving the platform's approved websites (host name only)</li><li>Browser window losing focus</li><li>Connection status and heartbeats, with timestamps</li></ul>
+    <strong>Never recorded:</strong> screen, camera, microphone, keystrokes, clipboard, passwords, answers, page content or other browsing history.
+    <p>These are technical signals, not proof of misconduct.</p>
+    <label class="check"><input type="checkbox" id="consent"> I understand and consent to this monitoring for this session.</label>
+  </div>
+  <button id="btn-start" disabled>Start monitoring</button>
+  <div id="existing" hidden class="notice"></div>
+</section>
+
+<section id="v-active" hidden>
+  <h2 id="a-title">Monitoring</h2>
+  <dl>
+    <dt>Platform</dt><dd id="a-platform"></dd>
+    <dt>Duration</dt><dd id="a-duration" class="mono"></dd>
+    <dt>Connection</dt><dd id="a-conn"></dd>
+    <dt>Events</dt><dd id="a-events"></dd>
+    <dt>Exam tab</dt><dd id="a-tab"></dd>
+  </dl>
+  <button id="btn-end" class="danger">End monitoring</button>
+  <div id="pending" hidden class="notice"></div>
+</section>
+
+<footer id="foot" hidden>
+  <span id="who"></span> &middot; <a href="#" id="open-dash" class="link">Dashboard</a> &middot; <a href="#" id="btn-logout" class="link">Sign out</a>
+</footer>
+<script src="popup.js" type="module"></script>
+</body></html>

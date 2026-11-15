@@ -1,0 +1,17 @@
+{
+  "info": { "name": "CertiTrack API", "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json" },
+  "variable": [ { "key": "base", "value": "http://127.0.0.1:8000/api" }, { "key": "token", "value": "" }, { "key": "sessionId", "value": "" } ],
+  "auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+  "item": [
+    { "name": "Login (student1)", "event": [ { "listen": "test", "script": { "exec": [ "pm.collectionVariables.set('token', pm.response.json().data.token);" ] } } ],
+      "request": { "auth": { "type": "noauth" }, "method": "POST", "header": [ { "key": "Accept", "value": "application/json" } ], "url": "{{base}}/login", "body": { "mode": "raw", "raw": "{\"email\":\"student1@certitrack.test\",\"password\":\"Password123!\"}", "options": { "raw": { "language": "json" } } } } },
+    { "name": "Platform config", "request": { "method": "GET", "header": [ { "key": "Accept", "value": "application/json" } ], "url": "{{base}}/platforms/config" } },
+    { "name": "Start session (platform 3 = local test)", "event": [ { "listen": "test", "script": { "exec": [ "pm.collectionVariables.set('sessionId', pm.response.json().data.id);" ] } } ],
+      "request": { "method": "POST", "header": [ { "key": "Accept", "value": "application/json" } ], "url": "{{base}}/sessions", "body": { "mode": "raw", "raw": "{\"platform_id\":3,\"consent\":true,\"client_id\":\"postman\"}", "options": { "raw": { "language": "json" } } } } },
+    { "name": "Post events", "request": { "method": "POST", "header": [ { "key": "Accept", "value": "application/json" } ], "url": "{{base}}/sessions/{{sessionId}}/events", "body": { "mode": "raw", "raw": "{\"events\":[{\"event_uuid\":\"{{$guid}}\",\"seq\":1,\"type\":\"tab_switched\",\"client_timestamp\":\"{{$isoTimestamp}}\",\"details\":{\"direction\":\"away\"}}]}", "options": { "raw": { "language": "json" } } } } },
+    { "name": "Heartbeat", "request": { "method": "POST", "header": [ { "key": "Accept", "value": "application/json" } ], "url": "{{base}}/sessions/{{sessionId}}/heartbeat", "body": { "mode": "raw", "raw": "{\"last_seq\":1}", "options": { "raw": { "language": "json" } } } } },
+    { "name": "End session", "request": { "method": "POST", "header": [ { "key": "Accept", "value": "application/json" } ], "url": "{{base}}/sessions/{{sessionId}}/end", "body": { "mode": "raw", "raw": "{\"last_seq\":1}", "options": { "raw": { "language": "json" } } } } },
+    { "name": "Instructor: events (login as instructor1 first)", "request": { "method": "GET", "header": [ { "key": "Accept", "value": "application/json" } ], "url": "{{base}}/instructor/sessions/{{sessionId}}/events" } },
+    { "name": "Instructor: review", "request": { "method": "POST", "header": [ { "key": "Accept", "value": "application/json" } ], "url": "{{base}}/instructor/sessions/{{sessionId}}/review", "body": { "mode": "raw", "raw": "{\"status\":\"reviewed\",\"remarks\":\"checked\"}", "options": { "raw": { "language": "json" } } } } }
+  ]
+}
