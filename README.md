@@ -1,328 +1,224 @@
-# CertiTrack — Privacy-Preserving Browser-Based Online Certification Examination Monitoring System
+# CertiTrack
 
-CertiTrack records a small, predefined set of **browser activity signals** (tab switches, new tabs, exam-tab closure, navigation outside approved domains, window focus loss, connection loss) during **explicitly started** monitoring sessions on external certification platforms (e.g. Cisco Networking Academy, Fortinet Training Institute). A Chrome extension reports them to a Laravel backend; instructors review timelines in a web dashboard.
+**A privacy-preserving, browser-based monitoring system for online certification examinations.**
 
-> **CertiTrack records technical activity. It does not detect, prevent or prove cheating.** Events can have innocent explanations, a determined user can disable the extension, and browser-generated records are not tamper-proof. Instructors, not software, make judgements.
+A Chrome extension records a small, predefined set of browser signals (tab switches, new tabs, exam-tab closure, navigation outside approved domains, window focus loss, connection loss) **only while a student explicitly runs a monitoring session**. A Laravel backend stores them in MySQL, and instructors review timelines in a web dashboard.
+
+> ⚠️ **CertiTrack records technical activity. It does not detect, prevent, or prove cheating.** Events can have innocent explanations, users can disable the extension, and browser-generated records are not tamper-proof.
+
+## Project status
+
+Verified on Ubuntu 22.04 with Chrome by the maintainer (results reported by the maintainer; output logs are not stored in the repo):
+
+| Part | Status |
+|---|---|
+| Chrome extension logic tests (`tests/extension`) | ✅ 31/31 (fake Chrome API + API stub) |
+| Laravel backend tests (`php artisan test`) | ✅ Passing |
+| End-to-end API smoke test against Laravel + MySQL (`tests/integration/e2e-smoke.mjs`) | ✅ Passing |
+| Extension loaded in real Chrome and used against the backend | ✅ Working |
+| Formal capture-rate measurement (95% target) | ⬜ Not measured |
+| `composer.lock` | ⬜ Not committed yet. Run `composer install` and commit it |
+
+If you hit a problem on another OS or PHP version, check `backend/storage/logs/laravel.log` and open an issue with the output.
+
+## What's inside
+
+```
+backend/                Laravel app (API, Sanctum auth, RBAC, Blade dashboards)
+certitrack-extension/   Chrome Manifest V3 extension
+database/               create-database.sql
+scripts/                setup-backend.sh / .ps1
+tests/                  extension tests + end-to-end API smoke test + Postman collection
+documentation/          detailed technical README (API, schema, limitations)
+```
+
+**Roles:** Student (pairs extension, starts/ends sessions, sees own records) · Instructor (reviews assigned students' sessions) · Administrator (users, platforms, domains, rules, audit log).
 
 ---
 
-## 0. Verification status — read this first
+## Quick start (Ubuntu 22.04)
 
-This project was produced in a sandbox that had **no PHP/MySQL/Composer access to Packagist** and **no Chrome**. So the status is split honestly:
+### 1. Install PHP 8.3, Composer, MySQL, Node, Chrome
 
-| Area | Status |
-|---|---|
-| All PHP files | **Syntax-checked** (`php -l`, PHP 8.3). **Never executed.** |
-| Laravel backend, migrations, seeders, Blade dashboards | **Written, not run.** Not installed, not migrated against MySQL, no page ever rendered. Expect to fix small defects on first run. |
-| PHPUnit tests (`backend/tests/Feature`) | **Written, not executed.** |
-| Chrome extension logic | **31/31 automated tests pass** (`npm run test:extension`) using the **real extension code** against a **fake Chrome API** and an **in-memory contract stub** of the API (see §17). This is *not* real Chrome and *not* Laravel. |
-| Extension loaded in real Chrome | **Not done.** |
-| **Mandatory integration gate** (student → extension → Laravel → MySQL → instructor) | **NOT demonstrated.** `tests/integration/e2e-smoke.mjs` automates it, but it has only been run against the contract stub (which validates the script, nothing else). **You must run it against the real backend (§17.2) before trusting the system.** |
-| Clean-environment install | **Not verified.** The skeleton-bootstrap script and `composer install` have never run. |
-| `composer.lock` | **Not included** (Composer could not run). `composer install` creates it; commit it. |
-| 95 % capture target | **Not measured.** The stub test captured 8/8 *injected* events; that is not a measurement of real Chrome. |
+Jammy ships PHP 8.1 and Node 12, which are too old, so this adds newer versions.
 
-Everything below describes the intended, implemented behaviour. Where I know something is untested, it says so.
-
----
-
-## 1. Purpose and scope
-Monitors browser activity during explicitly activated examination sessions. **Out of scope:** certificate tracking/verification, exam hosting, grading.
-
-## 2. Features and roles
-**Student** — register/login; pair the extension with a one-time code; see supported platforms; start/end monitoring (in the extension); see active status, last heartbeat/connection state; session history and own event timelines; a page explaining exactly what is collected; revoke paired extensions; end a stuck session from the dashboard.
-**Instructor** — sees only assigned students (optionally per platform); active/interrupted/completed sessions; timelines; filters (student, platform, date range, status, review status, free text), sorting, pagination; flag events; record review outcome + remarks; printable report and CSV export.
-**Administrator** — user CRUD/deactivation; platform registry + approved domain rules; student↔instructor assignments; monitoring rules (heartbeat interval/timeout, enabled event types, retention, require-assignment); system statistics; audit log; manual retention purge.
-RBAC is enforced server-side (middleware + query scoping `ExamSession::visibleTo`). Records you may not see return **404**, not 403.
-
-## 3. Architecture
-| Component | Responsibility |
-|---|---|
-| `certitrack-extension/` (Chrome MV3) | Pairing, consent, session start/end, event detection, durable queue, heartbeats, resync. |
-| `backend/` (Laravel + Sanctum) | Auth, RBAC, platform registry, session/event ingestion, timeouts, reviews, audit, REST API, Blade dashboards. |
-| MySQL | Users, platforms, domains, sessions, events, reviews, assignments, audit logs, settings. |
-| Dashboards (Blade + Bootstrap 5 + Chart.js, vendored locally) | Call the `/api/*` endpoints with the web session cookie (Sanctum stateful mode). No hard-coded data. |
-
-```mermaid
-flowchart LR
-  subgraph Browser["Student's Chrome (desktop)"]
-    EXT["CertiTrack extension<br/>service worker + popup"]
-    Q[("chrome.storage.local<br/>state + event queue")]
-    EXAM["Exam platform tab<br/>(netacad, fortinet, ...)"]
-    EXT <--> Q
-    EXAM -. "tabs / windows /<br/>webNavigation events" .-> EXT
-  end
-  subgraph Server["Laravel backend"]
-    API["REST API<br/>Sanctum auth + RBAC"]
-    SW["Sweeper: heartbeat timeout<br/>(scheduler + lazy)"]
-    WEB["Blade dashboards<br/>student / instructor / admin"]
-  end
-  DB[("MySQL")]
-  EXT -- "pair, session, events batch,<br/>heartbeat (Bearer token)" --> API
-  API <--> DB
-  SW <--> DB
-  WEB -- "session cookie + CSRF" --> API
-  INS["Instructor / Admin / Student browser"] --> WEB
-```
-
-**Key design points**
-* **Server time is authoritative** (`received_at`). Client timestamps only order events (`occurred_at` = client time clamped to `[session start, now]`).
-* **Dedupe:** client UUID per event (globally unique) + per-session sequence number (`unique(session_id, seq)`); batches (≤100) return per-event results (`accepted / duplicates / rejected`) so one bad event never blocks the queue.
-* **Severity is assigned by the server** from `config/certitrack.php`; clients cannot choose it. Detail values are whitelisted (host name only; never URLs, queries, titles).
-* **Integrity hint:** the extension reports its highest sequence number on heartbeat/end; the dashboard shows *"extension reports N events that never reached the server"* when counts differ.
-* **Late sync:** events arriving after the session ended are kept and marked `late sync` (never silently dropped).
-* **Suspension-safe extension:** all state and the queue live in `chrome.storage.local`, written atomically under a lock; listeners are registered at worker start; alarms (30 s period, best-effort) drive heartbeat/sync; the server timeout (default 120 s) is much longer than the alarm period.
-* **No content script.** Everything needed comes from `tabs`/`windows`/`webNavigation`, so the extension never touches page content (privacy, and fewer permissions). The suggested `scripts/content.js` was intentionally omitted.
-* **Review priority score** (weighted event count, info 0 / low 1 / medium 3 / high 5) exists only to sort sessions for manual review; it is labelled as such and is not a cheating probability.
-
-## 4. Technology stack
-| Part | Version |
-|---|---|
-| Chrome | 120+ desktop (Manifest V3; 30 s alarms) |
-| PHP | 8.2+ (developed against 8.3 syntax check) |
-| Laravel | 12 (`^12.0`; code uses only Laravel 11/12-compatible APIs) |
-| Laravel Sanctum | ^4.0 |
-| MySQL Community | 8.0+ (schema is portable; PHPUnit uses SQLite in memory) |
-| Bootstrap | 5.3.3 (vendored in `backend/public/vendor`) |
-| Chart.js | 4.4.3 (vendored) |
-| Node.js | 18+ only for the test runners (no npm dependencies) |
-
-## 5. Prerequisites
-* PHP ≥ 8.2 with extensions `pdo_mysql`, `mbstring`, `openssl`, `tokenizer`, `xml`, `ctype`, `json`, `fileinfo`; (`pdo_sqlite` for PHPUnit).
-* Composer 2, MySQL 8 (Community), Google Chrome 120+, Node 18+ (tests only), Git (optional).
-* Internet access for `composer` (Packagist/GitHub). Local demonstration needs no paid service. ~1 GB disk, 2 GB RAM is plenty.
-
-## 6. Install
 ```bash
-unzip CertiTrack-Complete-Project.zip && cd CertiTrack
-./scripts/setup-backend.sh            # Windows: powershell -ExecutionPolicy Bypass -File scripts\setup-backend.ps1
-```
-The ZIP contains CertiTrack's own Laravel source. The script downloads the **stock Laravel 12 skeleton only to fill in framework boilerplate** (`artisan`, `public/index.php`, `config/*.php`, …) without overwriting CertiTrack files, runs `composer install`, copies `.env.example` → `backend/.env` and runs `key:generate`. (Alternative if you prefer: `composer create-project laravel/laravel:^12.0 tmp`, copy its files into `backend/` without overwriting, then `composer install`.)
+sudo apt update
+sudo apt install -y software-properties-common curl wget unzip git ca-certificates
 
-## 7. MySQL database
+# PHP 8.3
+sudo add-apt-repository ppa:ondrej/php -y && sudo apt update
+sudo apt install -y php8.3-cli php8.3-mysql php8.3-mbstring php8.3-xml php8.3-curl php8.3-zip php8.3-sqlite3 php8.3-bcmath php8.3-intl
+
+# Composer 2
+curl -sS https://getcomposer.org/installer -o /tmp/composer-setup.php
+sudo php /tmp/composer-setup.php --install-dir=/usr/local/bin --filename=composer
+
+# MySQL 8
+sudo apt install -y mysql-server && sudo systemctl enable --now mysql
+
+# Node 20 (only used by the test scripts)
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt install -y nodejs
+
+# Google Chrome
+wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/chrome.deb
+sudo apt install -y /tmp/chrome.deb
+```
+
+Check: `php -v` (8.3.x), `composer --version` (2.x), `node -v` (v20.x).
+
+### 2. Get the code
+
 ```bash
-mysql -u root -p < database/create-database.sql     # edit the password inside first
+git clone <your-repo-url> CertiTrack     # or unzip CertiTrack-Complete-Project.zip
+cd CertiTrack
 ```
-Creates database `certitrack` (utf8mb4) and user `certitrack`@`localhost`.
 
-## 8. Environment variables (`backend/.env`)
-| Variable | Meaning |
-|---|---|
-| `APP_URL` | e.g. `http://127.0.0.1:8000` |
-| `DB_*` | MySQL connection (`DB_PASSWORD` must match step 7) |
-| `SESSION_DRIVER=file`, `CACHE_STORE=file` | Defaults; no extra tables needed |
-| `SANCTUM_STATEFUL_DOMAINS` | **host:port exactly as typed in the browser** (default `127.0.0.1:8000,localhost:8000`). Dashboards fail with 401/419 if this does not match. |
-| `APP_TIMEZONE=UTC` | Keep UTC: all times are stored in UTC and converted to the viewer's timezone in the browser. |
-Admin-editable runtime rules (heartbeat interval/timeout, retention, enabled events, …) live in the `system_settings` table, not `.env`.
+### 3. Create the database
 
-## 9. Migrate and seed
+Choose a password with letters and digits only:
+
+```bash
+DBPASS='ChooseAPassword123'
+sed -i "s/change_me_db_password/$DBPASS/" database/create-database.sql
+sudo mysql < database/create-database.sql
+mysql -u certitrack -p"$DBPASS" -e "SHOW DATABASES;"      # should list "certitrack"
+```
+
+### 4. Bootstrap the backend
+
+```bash
+bash scripts/setup-backend.sh
+```
+
+This downloads the Laravel 12 skeleton for framework boilerplate (without overwriting CertiTrack's files), runs `composer install`, creates `backend/.env`, and generates the app key. It takes a few minutes and needs internet access.
+
 ```bash
 cd backend
-php artisan migrate --seed
+sed -i "s/^DB_PASSWORD=.*/DB_PASSWORD=$DBPASS/" .env
 ```
-Seeds **development accounts only** (no sessions/events are seeded — everything in dashboards comes from real activity):
+
+### 5. Migrate, seed, and run the backend tests
+
+```bash
+php artisan migrate --seed
+php artisan test
+```
+
+### 6. Start the servers
+
+Use two terminals, both in `backend/`:
+
+```bash
+php artisan serve --host=127.0.0.1 --port=8000     # terminal 1
+php artisan schedule:work                          # terminal 2: heartbeat timeouts and retention purge
+```
+
+Open <http://127.0.0.1:8000>. You should see the login page.
+
+### 7. Development accounts
+
+These are seeded by `php artisan migrate --seed`. **Change or delete them before any real deployment.**
 
 | Role | Email | Password |
 |---|---|---|
 | Administrator | `admin@certitrack.test` | `Password123!` |
-| Instructor 1 (supervises students 1 & 2) | `instructor1@certitrack.test` | `Password123!` |
+| Instructor 1 (supervises students 1 and 2) | `instructor1@certitrack.test` | `Password123!` |
 | Instructor 2 (supervises student 3) | `instructor2@certitrack.test` | `Password123!` |
-| Students | `student1@…`, `student2@…`, `student3@certitrack.test` | `Password123!` |
+| Students | `student1@certitrack.test` … `student3@certitrack.test` | `Password123!` |
 
-> **Change or delete these accounts before any real deployment.** Also seeded: platforms *Cisco Networking Academy*, *Fortinet Training Institute* (example hostnames — **verify the real hosts, including SSO hosts, for your exams** and edit them in Admin → Platforms) and *Local Test Page (demo)* (`/demo-target` on this backend).
+### 8. Verify the backend
 
-## 10. Run the backend
+With the server running, in a third terminal from the repository root:
+
 ```bash
-php artisan serve --host=127.0.0.1 --port=8000
-php artisan schedule:work          # second terminal: heartbeat-timeout sweep every minute + daily retention purge
+node tests/integration/e2e-smoke.mjs      # every line should say PASS
+node tests/extension/run-tests.mjs        # extension logic tests, 31/31
 ```
-Even without the scheduler, instructor/admin session lists run a throttled sweep (≤ once per 20 s) so interruptions still appear. In production use the cron entry `* * * * * php /path/backend/artisan schedule:run`, put the app behind **HTTPS**, set `APP_ENV=production`, `APP_DEBUG=false`.
 
-## 11. Install the Chrome extension
-1. Chrome → `chrome://extensions` → enable **Developer mode** → **Load unpacked** → select the `certitrack-extension/` folder.
-2. Pin the extension (puzzle icon). A red **ON** badge shows whenever monitoring is active.
+The smoke test walks the full flow: login, pairing, session start, event ingest, duplicate rejection, cross-student access checks, instructor read, review, and session end. The extension tests run against a fake Chrome API and a stub server, not against Laravel.
 
-## 12. Connect the extension to the backend
-1. In the popup set the server address (default `http://127.0.0.1:8000`) → **Save server** (Chrome asks for permission to contact that origin; `127.0.0.1:8000`/`localhost:8000` are pre-granted in the manifest, other origins use *optional* host permissions requested on demand).
-2. Log in to the web dashboard as a student → **Generate pairing code** → type it in the popup → **Pair**. (The popup also offers email/password sign-in.)
-3. Revoke any paired extension from the student dashboard at any time.
-For production, replace the two localhost entries in `manifest.json → host_permissions` with your HTTPS origin.
+### 9. Load the extension in Chrome
 
-## 13. Demonstration (end-to-end by hand)
-1. Student logs in, pairs the extension.
-2. Open `http://localhost:8000/demo-target` in Chrome, open the popup, choose **Local Test Page (demo)**, tick the consent box, **Start monitoring**.
-3. Switch to another tab and back, open a new tab, click the "example.com" link, switch windows.
-4. Student dashboard → *My monitoring* shows the active session and events; **End monitoring** in the popup.
-5. Log in as `instructor1@certitrack.test` → open the session → timeline, flag an event, save a review, *Generate report*.
-6. To test offline queueing: stop `php artisan serve`, perform activities, restart it; events appear after the next 30 s alarm (popup → *Retry now* is not needed but available while ending).
+1. Open `chrome://extensions`.
+2. Turn on **Developer mode** (top right).
+3. Click **Load unpacked** and select the `certitrack-extension/` folder.
+4. Click the puzzle icon and pin **CertiTrack Monitor**.
 
-## 14. User guides
-**Student:** pair once; before an exam open the platform page in Chrome, start monitoring from *that* tab, press End when done. The popup shows platform, duration, connection, events recorded vs waiting to sync, and whether the exam tab is tracked. If the exam tab is closed, reopening an approved page re-binds it (recorded).
-**Instructor:** *Sessions* → filter/sort → *Open*. Timeline shows server-assigned severity, `late sync` and `server` badges. *Flag* an event, choose an outcome (Reviewed / No concern / Requires further investigation / Pending review), add remarks. *Generate report* for print/PDF + CSV. Every view of events/reports is audit-logged.
-**Administrator:** Users, Platforms (add a platform + its domains → the extension picks it up via `/api/platforms/config`; **no extension code change**), Assignments, Settings, Audit log. Include SSO/login hosts in a platform's domains, or normal sign-in redirects will be recorded as "navigation outside approved domains".
+If something misbehaves, click **service worker** on the extension's card to open its console.
 
-## 15. API (JSON; Bearer token or web session)
-Errors: `{"message": "...", "errors": {...}}` with 401 unauthenticated, 403 wrong role, 404 not found **or not yours**, 409 conflict/closed, 422 validation, 429 throttled. Success: `{"data": ...}` (lists are Laravel paginators).
+---
 
-| Method & path | Role | Purpose |
-|---|---|---|
-| `POST /api/login` | public | email+password → token |
-| `POST /api/extension/pair` | public | one-time code → extension token |
-| `POST /api/pairing-codes` | student | create 10-min code |
-| `GET /api/extension/devices`, `DELETE /api/extension/devices/{id}` | student | list/revoke paired extensions |
-| `GET /api/me`, `POST /api/logout` | any | |
-| `GET /api/platforms`, `GET /api/platforms/config` | any | registry / extension config |
-| `GET /api/stats` | any | role-scoped aggregates |
-| `POST /api/sessions` | student | start (consent required) |
-| `GET /api/sessions`, `GET /api/sessions/active` | student | history / open session |
-| `GET /api/sessions/{id}`, `GET /api/sessions/{id}/events` | scoped | student own / instructor assigned / admin all |
-| `POST /api/sessions/{id}/events` | owner student | batch ingest (≤100) |
-| `POST /api/sessions/{id}/heartbeat`, `POST /api/sessions/{id}/end` | owner student | |
-| `GET /api/instructor/students`, `GET /api/instructor/sessions` | instructor, admin | filters: `student_id, platform_id, status, review_status, from, to, q, sort, dir, page` |
-| `GET /api/instructor/sessions/{id}/events`, `.../report` | instructor, admin | audited |
-| `POST /api/instructor/sessions/{id}/review`, `DELETE .../events/{eventId}/flag` | instructor | |
-| `/api/admin/users`, `/platforms`, `/platforms/{id}/domains`, `/domains/{id}`, `/assignments`, `/settings`, `/audit-logs`, `/retention/purge` | admin | CRUD / configuration |
+## Try it end to end
 
-**Examples**
-```http
-POST /api/login
-{"email":"student1@certitrack.test","password":"Password123!"}
-→ 200 {"data":{"token":"1|abc…","user":{"id":4,"name":"Sara Student","email":"…","role":"student"}}}
-```
-```http
-POST /api/sessions                       Authorization: Bearer <token>
-{"platform_id":3,"consent":true,"client_id":"2f1c…"}
-→ 201 {"data":{"id":12,"status":"active","platform":{"id":3,"name":"Local Test Page (demo)"},"started_at":"2026-11-15T09:00:00.000000Z", …}}
-→ 409 {"message":"A monitoring session is already open.","data":{…}}      # one open session per student
-```
-```http
-POST /api/sessions/12/events
-{"events":[{"event_uuid":"7b0c…","seq":1,"type":"tab_switched","client_timestamp":"2026-11-15T09:01:10.120Z","details":{"direction":"away"}}]}
-→ 200 {"data":{"accepted":["7b0c…"],"duplicates":[],"rejected":[],"session_status":"active","server_time":"…"}}
-# re-sending the same batch → "accepted":[],"duplicates":["7b0c…"]
-```
-```http
-POST /api/sessions/12/heartbeat   {"last_seq":1}   → 200 {"data":{"status":"active","server_time":"…","heartbeat_interval_sec":30}}
-                                                   → 409 once the session is completed/abandoned
-POST /api/sessions/12/end         {"last_seq":1}   → 200 {"data":{"status":"completed", …}}   # idempotent
-POST /api/instructor/sessions/12/review {"status":"requires_investigation","remarks":"…","event_id":57}
-→ 201 {"data":{"id":3,"status":"requires_investigation","reviewer":{"id":2,"name":"Ines Instructor"}}}
-```
-Event types the extension may send: `tab_switched, tab_opened, window_focus_lost, window_focus_gained, navigation_outside_domain, navigation_returned, exam_tab_closed, exam_tab_reopened, connection_lost, connection_restored`. Server-generated: `session_started, session_ended, heartbeat_timeout, extension_disconnected, monitoring_resumed, session_abandoned`.
+### Pair the extension
+1. Log in at <http://127.0.0.1:8000/login> as `student1@certitrack.test`.
+2. Click **Generate pairing code**.
+3. Open the extension popup, enter the code, and click **Pair**.
 
-| Event | Severity | | Session status | Review status |
-|---|---|---|---|---|
-| tab switched / new tab / focus lost | low | | scheduled | pending_review |
-| navigation outside domains / exam tab closed / heartbeat timeout / connection lost | medium | | active | reviewed |
-| extension disconnected | high | | interrupted | no_concern |
-| focus gained / returned / reopened / restored / resumed / started / ended | info | | completed, abandoned | requires_investigation |
+### Start monitoring
+1. In a new tab, open <http://localhost:8000/demo-target>. This neutral demo page is not an exam system.
+2. Open the popup. **Local Test Page (demo)** should be preselected and the tab detected as matching.
+3. Tick the consent box and click **Start monitoring**. A red **ON** badge appears.
 
-Heartbeat rules (defaults, admin-editable): silent > 120 s → **interrupted** + `heartbeat_timeout`; silent ≥ 240 s → `extension_disconnected` (once); silent ≥ 1800 s → **abandoned**; any heartbeat/event batch after an interruption → **active** + `monitoring_resumed`.
+### Generate events
 
-## 16. Database schema
-```mermaid
-erDiagram
-  users ||--o{ exam_sessions : "student_id"
-  users ||--o{ session_assignments : "student / instructor"
-  users ||--o{ session_reviews : reviewer_id
-  users ||--o{ audit_logs : user_id
-  users ||--o{ pairing_codes : user_id
-  certification_platforms ||--o{ platform_domains : has
-  certification_platforms ||--o{ exam_sessions : platform_id
-  certification_platforms ||--o{ session_assignments : "optional"
-  exam_sessions ||--o{ monitoring_events : has
-  exam_sessions ||--o{ session_reviews : has
-  monitoring_events ||--o{ session_reviews : "optional event_id"
-```
-| Table | Notes |
+| Action | Expected event |
 |---|---|
-| `users` | `role` enum student/instructor/admin, `is_active` |
-| `certification_platforms`, `platform_domains` | domain rule = `host` + `match_type` (`suffix` = host and subdomains, `exact`) + optional `path_prefix`; unique (platform, host, path) |
-| `session_assignments` | student ↔ instructor, optional platform (NULL = all) |
-| `exam_sessions` | `status`, `review_status`, consent version/time, start/end/last heartbeat, `event_count`, `review_score`, `client_last_seq`; indexes on student/status, platform/status, started_at, review_status |
-| `monitoring_events` | `event_uuid` unique, unique (`session_id`,`seq`), `severity`, `source`, `client_timestamp`, `received_at`, `occurred_at`, whitelisted JSON `details`, `received_after_end`, `flagged` |
-| `session_reviews` | reviewer, status, remarks, optional event |
-| `audit_logs` | action, subject, metadata, IP (logins excluded; reviews, event/report views, admin changes included) |
-| `pairing_codes` | SHA-256 of one-time code, expiry, used_at |
-| `system_settings` | key → JSON (admin rules) |
-| `personal_access_tokens`, `sessions`, `password_reset_tokens` | Sanctum / Laravel |
-All timestamps are UTC.
+| Switch to another tab and back | Tab switched (away / return) |
+| Ctrl+T | New tab opened |
+| Click another app, then back to Chrome | Window focus lost / gained |
+| Click the "example.com" link on the demo page | Navigation outside approved domain (host only) |
+| Press Back | Navigation returned |
+| Close the demo tab | Exam tab closed |
 
-## 17. Testing
-### 17.1 Extension tests (executed in the sandbox)
-```bash
-npm run test:extension        # or: node tests/extension/run-tests.mjs   (Node 18+)
-```
-Real extension modules run in separate Node processes (one per simulated service-worker lifetime; state only survives via the storage file) against a **fake Chrome API** (`fake-chrome.js`, events injected by the test) and an **in-memory contract stub** (`stub-server.js`, *not Laravel*). **Result when run in the sandbox: 31/31 passed** (details: `documentation/test-results-extension.json`). Covered: pairing; consent refusal; platform detection (wrong tab refused); new platform via config only; each event type; sequence numbers; host-only privacy; subframe ignoring; offline queueing across restarts; resync after reconnect; no duplicates after a lost response; heartbeat/interruption/resume contract; server-closed session; end while offline; browser-restart handling.
-**What this does not prove:** that real Chrome fires these events as modelled (e.g. transient focus events, exact tab-activation order), nor anything about Laravel/MySQL.
+Click **End monitoring** in the popup. The student dashboard (`/student`) shows the session and its timeline.
 
-### 17.2 Integration gate against the real backend (YOU must run this)
-```bash
-# backend running with migrated+seeded DB
-BASE_URL=http://127.0.0.1:8000 node tests/integration/e2e-smoke.mjs
-```
-Automates: logins → pairing → start session (consent, 409 on second) → batch events → duplicate resend → server-only types rejected → heartbeat → other-student 404 → assigned instructor reads events → unassigned instructor 404 → review → end (idempotent) → heartbeat 409 → events still readable → late event accepted. Then do the manual demonstration in §13 with real Chrome and the checklist: events not duplicated; events survive stopping the server; service-worker suspension (`chrome://serviceworker-internals` → Stop, then keep browsing); interruption + resume. Postman collection: `tests/integration/postman-collection.json`.
+### Review as an instructor
+Log out, then log in as `instructor1@certitrack.test`. Open the session, flag an event, save a review, and click **Generate report**. As `student2`, opening that session URL should give a 404.
 
-### 17.3 Backend PHPUnit (written, **not executed**)
-```bash
-cd backend && php artisan test        # SQLite in memory; needs pdo_sqlite
-```
-`tests/Feature`: auth, RBAC and 404 scoping, pairing, consent/one-open-session, batch storage + server severity + URL stripping, duplicates/invalid/seq conflict, late events, heartbeat timeout→interrupted→disconnected→resumed→abandoned, review + audit + scoping, new platform via admin API appearing in `/platforms/config`, admin self-demotion guard, settings validation.
+### Resilience checks
+1. **Offline queue:** stop `php artisan serve` and switch tabs a few times. The popup shows Offline with events waiting. Restart the server and the events sync within about 30 seconds.
+2. **Worker suspension:** in `chrome://serviceworker-internals`, stop the CertiTrack worker, then keep switching tabs. Events are still recorded.
+3. **Interruption:** disable the extension for about 3 minutes mid-session. The instructor view shows the session Interrupted (heartbeat timeout). Re-enable it and it returns to Active with a "monitoring resumed" event.
 
-### 17.4 Acceptance checklist status
-| # | Item | Status |
-|---|---|---|
-| 1–2 | Authentication, RBAC | PHPUnit + smoke written; **not run on Laravel** |
-| 3 | Extension pairing | Extension side passes vs stub; Laravel not run |
-| 4 | Platform detection | Passes (real resolver code) |
-| 5 | Session start/end | Extension side passes vs stub; Laravel not run |
-| 6–10 | Tab switch, new tab, unapproved navigation, focus loss, exam tab closure | Pass with **injected** Chrome events; real Chrome not tested |
-| 11 | Event submission & DB storage | **Not run** (needs Laravel+MySQL) |
-| 12 | Duplicate rejection | Extension/stub passes; Laravel PHPUnit not run |
-| 13–14 | Offline queue, resync | Pass (fake Chrome + stub) |
-| 15 | Heartbeat timeout/interruption | Stub contract passes; Laravel PHPUnit not run |
-| 16 | Dashboard shows real events | **Not tested** (pages never rendered) |
-| 17–19 | Student/instructor restrictions, review | PHPUnit written; **not run** |
-| 20 | New platform via configuration | Extension side passes; admin API PHPUnit not run |
-| — | ≥95 % capture target | **Not measured** in real conditions |
+---
 
-## 18. Troubleshooting
+## Add a new certification platform (no code changes)
+
+Log in as the admin and go to **Platforms → Add platform**, then add its domains. Include sign-in (SSO) hosts too, or normal login redirects are recorded as "navigation outside approved domains". Extensions pick up the change from `/api/platforms/config`.
+
+The seeded Cisco and Fortinet hostnames are **examples**. Verify the real hosts your exams use.
+
+## Troubleshooting
+
 | Symptom | Fix |
 |---|---|
-| Dashboard shows red "Unauthenticated"/419 | `SANCTUM_STATEFUL_DOMAINS` must equal the address-bar host:port; `php artisan config:clear` |
-| Extension: "Cannot reach server" | Server running? Address saved? Click *Save server* and accept the permission prompt; `http://` is fine for localhost only |
-| "Open the … page in this window first" | Active tab must match the platform's domains (Admin → Platforms); start from that tab |
-| Normal sign-in counted as "outside domain" | Add the SSO host to the platform's domains |
-| No `heartbeat_timeout` events | Run `php artisan schedule:work` or just open the instructor session list (lazy sweep) |
-| `could not find driver` | enable `pdo_mysql` (or `pdo_sqlite` for tests) in php.ini |
-| `Class "…" not found` after copying files | `composer dump-autoload` |
-| Extension says signed out | Pair again; unsent events are retained and sent after re-pairing as the same student |
-| Alarms feel slow | Chrome enforces ≥30 s alarm periods and may delay them; timeouts are sized accordingly |
+| Dashboard shows 401 or 419 | `SANCTUM_STATEFUL_DOMAINS` in `backend/.env` must match the host:port in your address bar, then `php artisan config:clear` |
+| `Class … not found` | `composer dump-autoload` |
+| `could not find driver` | Install `php8.3-mysql` (or `php8.3-sqlite3` for tests) |
+| Extension: "Cannot reach server" | Is `php artisan serve` running? Re-save the server address in the popup and accept the permission prompt |
+| "Open the … page in this window first" | The active tab must be on one of the platform's approved domains |
+| No heartbeat-timeout events | Run `php artisan schedule:work`, or open the instructor session list, which also triggers a check |
+| Extension says signed out | Pair again. Unsent events are kept and sent afterwards |
 
-## 19. Known limitations and unsupported scenarios
-* Only **Chrome desktop on one machine**; other browsers, apps and devices are invisible. Users can disable/uninstall the extension (the server then records missed heartbeats). Client records can be forged by someone who can call the API with a paired token. **Not tamper-proof; does not prevent or prove cheating.**
-* A platform's exam may run in another window/app (e.g. a proctoring client), a different browser profile, or in an iframe-heavy flow — such cases are not supported. Hostname lists in the seed data are examples and unverified.
-* Window-focus events can produce false positives (OS dialogs, notifications, DevTools, some multi-window setups) and Chrome emits transient focus events; the extension debounces by 300 ms but this is untested on real hardware.
-* Heartbeat/queue timing depends on `chrome.alarms` (≥30 s, best-effort) and on the worker being woken; very long worker suspension while offline is handled by persistence but only simulated in tests.
-* Queue capped at 5,000 events; overflow drops oldest and is counted and shown (never silent).
-* No content script: page visibility/blur inside the page and multi-monitor focus are not observed beyond Chrome window focus.
-* Admin cannot edit severity mappings in the UI (they are in `config/certitrack.php`); email notifications, password reset and SSO login are not implemented; dashboard auto-refresh is polling (15 s).
-* Retention: closed sessions are deleted after `retention_days`; no per-student deletion request workflow beyond admin purge/deactivation.
-* Not legal advice: consider RA 10173 (Data Privacy Act of 2012), obtain institutional approval, publish a privacy notice, appoint/consult your DPO, and run a privacy impact assessment before use.
-* Never verified in a clean environment; `composer.lock` and Laravel's own `config/` come from the bootstrap script.
+## Privacy
 
-## 20. Future enhancements
-Real-browser E2E tests (Playwright/puppeteer with the extension), signed event batches with server-held per-session keys to make forgery harder, configurable severity rules in the UI, optional page-visibility content script behind an explicit opt-in, per-student data export/deletion requests, email/webhook alerts for interrupted sessions, Firefox/Edge ports, SSO, i18n, Laravel Pint/Pest CI.
+**Collected during a session only:** tab switches, new tabs, exam-tab closure, navigation outside approved domains (host name only), window focus changes, connection status and heartbeats, with timestamps.
 
-## Project layout
-```
-CertiTrack/
-├── backend/                 Laravel source overlay (app, routes, database, resources, public, tests, config/certitrack.php)
-├── certitrack-extension/    Chrome MV3 extension (background/, popup/, services/, assets/)
-├── database/                create-database.sql
-├── documentation/           test-results-extension.json
-├── scripts/                 setup-backend.sh / .ps1
-├── tests/                   extension/ (fake Chrome + stub), integration/ (smoke script, Postman)
-├── .env.example  LICENSE  README.md  package.json
-```
-Licence: MIT (`LICENSE`). Bootstrap and Chart.js are MIT-licensed; their licences are in `backend/public/vendor/`.
+**Never collected:** screen or camera, microphone, keystrokes, clipboard, passwords, exam answers, page content, or other browsing history.
+
+Use of this software should follow your institution's policies and applicable law, including the Philippine Data Privacy Act of 2012 (RA 10173). Obtain consent, publish a privacy notice, and consult your Data Protection Officer.
+
+## Known limitations
+
+- Chrome desktop on a single machine only. Other browsers, apps, and devices are invisible.
+- Users can disable or uninstall the extension, and client records can be forged by someone holding a paired token.
+- Window-focus events can produce false positives (OS dialogs, notifications, multi-window setups).
+- Not yet implemented: email alerts, password reset, SSO login, and a UI for editing severity mappings.
+
+See [`documentation/TECHNICAL-README.md`](documentation/TECHNICAL-README.md) for the full architecture, API reference with examples, database schema, test coverage, and complete limitations.
+
+## License
+
+MIT. See [`LICENSE`](LICENSE). Bootstrap and Chart.js are MIT-licensed and vendored in `backend/public/vendor/`.
