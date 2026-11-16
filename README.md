@@ -70,7 +70,7 @@ Check: `php -v` (8.3.x), `composer --version` (2.x), `node -v` (v20.x).
 ### 2. Get the code
 
 ```bash
-git clone <your-repo-url> CertiTrack     # or unzip CertiTrack-Complete-Project.zip
+git clone <repo-url> CertiTrack     # or unzip CertiTrack-Complete-Project.zip
 cd CertiTrack
 ```
 
